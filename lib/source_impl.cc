@@ -91,6 +91,9 @@
 #ifdef ENABLE_FREESRP
 #include <freesrp_source_c.h>
 #endif
+#ifdef ENABLE_XTRX
+#include <xtrx_source_c.h>
+#endif
 
 
 #include "arg_helpers.h"
@@ -171,6 +174,9 @@ source_impl::source_impl( const std::string &args )
 #ifdef ENABLE_FREESRP
   dev_types.push_back("freesrp");
 #endif
+#ifdef ENABLE_XTRX
+  dev_types.push_back("xtrx");
+#endif
   std::cerr << "gr-osmosdr "
             << GR_OSMOSDR_VERSION << " (" << GR_OSMOSDR_LIBVER << ") "
             << "gnuradio " << gr::version() << std::endl;
@@ -250,6 +256,10 @@ source_impl::source_impl( const std::string &args )
 #endif
 #ifdef ENABLE_FREESRP
     BOOST_FOREACH( std::string dev, freesrp_source_c::get_devices() )
+      dev_list.push_back( dev );
+#endif
+#ifdef ENABLE_XTRX
+    BOOST_FOREACH( std::string dev, xtrx_source_c::get_devices() )
       dev_list.push_back( dev );
 #endif
 
@@ -379,6 +389,13 @@ source_impl::source_impl( const std::string &args )
 #ifdef ENABLE_FREESRP
     if ( dict.count("freesrp") ) {
       freesrp_source_c_sptr src = make_freesrp_source_c( arg );
+      block = src; iface = src.get();
+    }
+#endif
+
+#ifdef ENABLE_XTRX
+    if ( dict.count("xtrx") ) {
+      xtrx_source_c_sptr src = make_xtrx_source_c( arg );
       block = src; iface = src.get();
     }
 #endif

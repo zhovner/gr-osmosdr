@@ -249,6 +249,14 @@ GR_INCLUDE_SUBDIRECTORY(freesrp)
 endif(ENABLE_FREESRP)
 
 ########################################################################
+# Setup XTRX component
+########################################################################
+GR_REGISTER_COMPONENT("XTRX SDR" ENABLE_XTRX LIBXTRX_FOUND)
+if(ENABLE_XTRX)
+GR_INCLUDE_SUBDIRECTORY(xtrx)
+endif(ENABLE_XTRX)
+
+########################################################################
 # Setup configuration file
 ########################################################################
 ADD_DEFINITIONS(-DHAVE_CONFIG_H=1)

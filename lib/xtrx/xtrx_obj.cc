@@ -87,7 +87,7 @@ double xtrx_obj::set_smaplerate(double rate, double master, bool sink, unsigned 
     _source_rate = rate;
     _source_master = master;
   }
-  _flags |= flags;
+  _flags |= flags | XTRX_SAMPLERATE_FORCE_UPDATE;
 
   if (_sink_master != 0 && _source_master != 0 && _sink_master != _source_master) {
     std::stringstream message;
@@ -97,7 +97,7 @@ double xtrx_obj::set_smaplerate(double rate, double master, bool sink, unsigned 
     throw std::runtime_error( message.str() );
   }
 
-  double rxrate, txrate;
+  double rxrate = 0, txrate = 0;
   double actmaster = (_source_master > 0) ? _source_master : _sink_master;
   int res = xtrx_set_samplerate(_obj,
                                 actmaster,
@@ -109,7 +109,9 @@ double xtrx_obj::set_smaplerate(double rate, double master, bool sink, unsigned 
                                 &txrate);
   if (res) {
     std::cerr << "Unable to set samplerate, error=" << res << std::endl;
-    return 0;
+  if (sink)
+    return _sink_rate;
+  return _source_rate;
   }
 
   if (sink)

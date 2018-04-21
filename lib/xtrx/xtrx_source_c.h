@@ -78,6 +78,7 @@ public:
 
   double set_bandwidth( double bandwidth, size_t chan = 0 );
   double get_bandwidth( size_t chan = 0 );
+  osmosdr::freq_range_t get_bandwidth_range( size_t chan = 0);
 
   int work (int noutput_items,
             gr_vector_const_void_star &input_items,

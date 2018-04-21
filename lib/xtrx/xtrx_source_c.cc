@@ -388,8 +388,14 @@ double xtrx_source_c::get_bandwidth( size_t chan )
   return _bandwidth;
 }
 
+osmosdr::freq_range_t xtrx_source_c::get_bandwidth_range( size_t chan )
+{
+  return osmosdr::freq_range_t(500e3, 140e6, 0);
+}
+
 
 static const std::map<std::string, xtrx_antenna_t> s_ant_map = boost::assign::map_list_of
+    ("AUTO", XTRX_RX_AUTO)
     ("RXL", XTRX_RX_L)
     ("RXH", XTRX_RX_H)
     ("RXW", XTRX_RX_W)
@@ -397,6 +403,7 @@ static const std::map<std::string, xtrx_antenna_t> s_ant_map = boost::assign::ma
     ("RXW_LB", XTRX_RX_W_LB)
     ;
 static const std::map<xtrx_antenna_t, std::string> s_ant_map_r = boost::assign::map_list_of
+    (XTRX_RX_AUTO, "AUTO")
     (XTRX_RX_L, "RXL")
     (XTRX_RX_H, "RXH")
     (XTRX_RX_W, "RXW")
@@ -417,7 +424,7 @@ static xtrx_antenna_t get_ant_type(const std::string& name)
 }
 
 static const std::vector<std::string> s_ant_list = boost::assign::list_of
-    ("RXL")("RXH")("RXW")
+    ("AUTO")("RXL")("RXH")("RXW")
     ;
 
 
@@ -454,6 +461,7 @@ int xtrx_source_c::work (int noutput_items,
   ri.buffer_count = output_items.size();
   ri.buffers = &output_items[0];
   ri.flags = RCVEX_DONT_INSER_ZEROS | RCVEX_DROP_OLD_ON_OVERFLOW;
+  ri.timeout = 1000;
 
   int res = xtrx_recv_sync_ex(_xtrx->dev(), &ri);
   if (res) {

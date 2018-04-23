@@ -227,7 +227,8 @@ While primarily being developed for the OsmoSDR hardware, this block as well sup
  * Great Scott Gadgets HackRF through libhackrf
  * Nuand LLC bladeRF through libbladeRF library
  * Ettus USRP Devices through Ettus UHD library
- * Fairwaves UmTRX through Fairwaves' fork of UHD
+ * Fairwaves XTRX through libxtrx
+ * Fairwaves UmTRX through Fairwaves' module for UHD
  * Red Pitaya SDR transceiver (http://bazaar.redpitaya.com)
  * FreeSRP through libfreesrp library
 
@@ -269,6 +270,7 @@ Lines ending with ... mean it's possible to bind devices together by specifying 
   hackrf=0[,buffers=32][,bias=0|1][,bias_tx=0|1]
   bladerf=0[,tamer=internal|external|external_1pps][,smb=25e6]
   uhd[,serial=...][,lo_offset=0][,mcr=52e6][,nchan=2][,subdev='\\\\'B:0 A:0\\\\''] ...
+  xtrx
 
 Num Channels:
 Selects the total number of channels in this multi-device configuration. Required when specifying multiple device arguments.

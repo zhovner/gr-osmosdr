@@ -51,7 +51,7 @@ static size_t parse_nchan(const std::string &args)
   dict_t dict = params_to_dict(args);
 
   if (dict.count("nchan"))
-    nchan = boost::lexical_cast< size_t >( dict["nchan"] );
+	nchan = boost::lexical_cast< size_t >( dict["nchan"] );
 
   if (nchan < 1)
     nchan = 1;
@@ -73,13 +73,16 @@ xtrx_sink_c::xtrx_sink_c(const std::string &args) :
   _freq(0),
   _corr(0),
   _bandwidth(0),
+  _dsp(0),
   _auto_gain(false),
   _otw(XTRX_WF_16),
   _mimo_mode(parse_nchan(args) > 1),
   _ts(8192),
   _swap_ab(false),
   _swap_iq(false),
-  _tdd(false)
+  _tdd(false),
+  _allow_dis(false),
+  _dev("/dev/xtrx0")
 {
 
   dict_t dict = params_to_dict(args);
@@ -110,6 +113,14 @@ xtrx_sink_c::xtrx_sink_c(const std::string &args) :
     lmsreset = boost::lexical_cast< bool >( dict["lmsreset"] );
   }
 
+  if (dict.count("txdelay")) {
+	_ts += 8192 * boost::lexical_cast< int >( dict["txdelay"] );
+  }
+
+  if (dict.count("allowdis")) {
+	_allow_dis = boost::lexical_cast< bool >( dict["allowdis"] );
+  }
+
   if (dict.count("swap_ab")) {
     _swap_ab = true;
     std::cerr << "xtrx_sink_c: swap AB channels";
@@ -129,10 +140,23 @@ xtrx_sink_c::xtrx_sink_c(const std::string &args) :
     std::cerr << "xtrx_sink_c: TDD mode";
   }
 
-  _xtrx = xtrx_obj::get("/dev/xtrx0", loglevel, lmsreset);
+  if (dict.count("dsp")) {
+	_dsp = boost::lexical_cast< double >( dict["dsp"] );
+	std::cerr << "xtrx_sink_c: DSP:" << _dsp;
+  }
+
+  if (dict.count("dev")) {
+	  _dev =  dict["dev"];
+	  std::cerr << "xtrx_sink_c: XTRX device: %s" << _dev.c_str();
+  }
+
+  _xtrx = xtrx_obj::get(_dev.c_str(), loglevel, lmsreset);
 
   if (dict.count("refclk")) {
     xtrx_set_ref_clk(_xtrx->dev(), boost::lexical_cast< unsigned >( dict["refclk"] ), XTRX_CLKSRC_INT);
+  }
+  if (dict.count("extclk")) {
+	xtrx_set_ref_clk(_xtrx->dev(), boost::lexical_cast< unsigned >( dict["extclk"] ), XTRX_CLKSRC_EXT);
   }
 
   std::cerr << "xtrx_sink_c::xtrx_sink_c()" << std::endl;
@@ -188,19 +212,20 @@ double xtrx_sink_c::set_center_freq( double freq, size_t chan )
   _freq = freq;
   double corr_freq = (freq)*(1.0 + (_corr) * 0.000001);
 
-  std::cerr << "Set freq " << freq << std::endl;
+  std::cerr << "TX Set freq " << freq << std::endl;
 
-  int res = xtrx_tune(_xtrx->dev(), (_tdd) ? XTRX_TUNE_TX_AND_RX_TDD : XTRX_TUNE_TX_FDD, corr_freq, &_freq);
+  int res = xtrx_tune(_xtrx->dev(), (_tdd) ? XTRX_TUNE_TX_AND_RX_TDD : XTRX_TUNE_TX_FDD, corr_freq - _dsp, &_freq);
   if (res) {
     std::cerr << "Unable to deliver frequency " << corr_freq << std::endl;
   }
 
+  res = xtrx_tune(_xtrx->dev(), XTRX_TUNE_BB_TX, _dsp, NULL);
   return get_center_freq(chan);
 }
 
 double xtrx_sink_c::get_center_freq( size_t chan )
 {
-  return _freq;
+  return _freq + _dsp;
 }
 
 double xtrx_sink_c::set_freq_corr( double ppm, size_t chan )
@@ -358,16 +383,62 @@ std::string xtrx_sink_c::get_antenna( size_t chan )
   return s_ant_map_r.find(_ant)->second;
 }
 
+void xtrx_sink_c::tag_process(int ninput_items)
+{
+  std::sort(_tags.begin(), _tags.end(), gr::tag_t::offset_compare);
+
+  const uint64_t samp0_count = this->nitems_read(0);
+  uint64_t max_count = samp0_count + ninput_items;
+
+  bool found_time_tag = false;
+  BOOST_FOREACH(const gr::tag_t &my_tag, _tags) {
+    const uint64_t my_tag_count = my_tag.offset;
+    const pmt::pmt_t &key = my_tag.key;
+    const pmt::pmt_t &value = my_tag.value;
+
+    if (my_tag_count >= max_count) {
+      break;
+    } else if(pmt::equal(key, TIME_KEY)) {
+      //if (my_tag_count != samp0_count) {
+      //    max_count = my_tag_count;
+      //    break;
+      //}
+      found_time_tag = true;
+      //_metadata.has_time_spec = true;
+      //_metadata.time_spec = ::uhd::time_spec_t
+      //      (pmt::to_uint64(pmt::tuple_ref(value, 0)),
+      //       pmt::to_double(pmt::tuple_ref(value, 1)));
+      uint64_t seconds = pmt::to_uint64(pmt::tuple_ref(value, 0));
+      double fractional = pmt::to_double(pmt::tuple_ref(value, 1));
+
+      std::cerr << "TX_TIME: " << seconds << ":" << fractional << std::endl;
+    }
+  } // end foreach
+
+  if (found_time_tag) {
+    //_metadata.has_time_spec = true;
+  }
+}
+
 int xtrx_sink_c::work (int noutput_items,
                        gr_vector_const_void_star &input_items,
                        gr_vector_void_star &output_items)
 {
+  int ninput_items = noutput_items;
+  const uint64_t samp0_count = nitems_read(0);
+  get_tags_in_range(_tags, 0, samp0_count, samp0_count + ninput_items);
+  if (!_tags.empty())
+    tag_process(ninput_items);
+
   xtrx_send_ex_info_t nfo;
   nfo.samples = noutput_items;
   nfo.buffer_count = input_items.size();
   nfo.buffers = &input_items[0];
   nfo.flags = XTRX_TX_DONT_BUFFER;
+  if (!_allow_dis)
+	nfo.flags |= XTRX_TX_NO_DISCARD;
   nfo.ts = _ts;
+  nfo.timeout = 0;
 
   int res = xtrx_send_sync_ex(_xtrx->dev(), &nfo);
   if (res) {

@@ -47,10 +47,13 @@ public:
 
   double set_smaplerate(double rate, double master, bool sink, unsigned flags);
 
+  void set_vio(unsigned vio) { _vio = vio; }
+
   boost::mutex mtx;
 protected:
   xtrx_dev* _obj;
   bool      _run;
+  unsigned  _vio;
 
   double    _sink_rate;
   double    _sink_master;

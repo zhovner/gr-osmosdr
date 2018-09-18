@@ -76,11 +76,18 @@ xtrx_source_c::xtrx_source_c(const std::string &args) :
   _auto_gain(false),
   _otw(XTRX_WF_16),
   _mimo_mode(parse_nchan(args) > 1),
+  _prev_phase(0),
+  _prev_phasefb(0),
+  _prev_pwr(0),
   _swap_ab(false),
   _swap_iq(false),
   _loopback(false),
-  _tdd(false)
+  _tdd(false),
+  _fbctrl(false),
+  _dsp(0),
+  _dev("/dev/xtrx0")
 {
+  _id = pmt::string_to_symbol(args);
 
   dict_t dict = params_to_dict(args);
 
@@ -123,6 +130,10 @@ xtrx_source_c::xtrx_source_c(const std::string &args) :
     lmsreset = boost::lexical_cast< bool >( dict["lmsreset"] );
   }
 
+  if (dict.count("fbctrl")) {
+	_fbctrl = boost::lexical_cast< bool >( dict["fbctrl"] );
+  }
+
   if (dict.count("swap_ab")) {
     _swap_ab = true;
     std::cerr << "xtrx_source_c: swap AB channels";
@@ -147,10 +158,38 @@ xtrx_source_c::xtrx_source_c(const std::string &args) :
     std::cerr << "xtrx_source_c: TDD mode";
   }
 
-  _xtrx = xtrx_obj::get("/dev/xtrx0", loglevel, lmsreset);
+  if (dict.count("dsp")) {
+	_dsp = boost::lexical_cast< double >( dict["dsp"] );
+	std::cerr << "xtrx_source_c: DSP:" << _dsp;
+  }
+
+  if (dict.count("dev")) {
+	  _dev =  dict["dev"];
+	  std::cerr << "xtrx_source_c: XTRX device: %s" << _dev.c_str();
+  }
+
+  _xtrx = xtrx_obj::get(_dev.c_str(), loglevel, lmsreset);
 
   if (dict.count("refclk")) {
     xtrx_set_ref_clk(_xtrx->dev(), boost::lexical_cast< unsigned >( dict["refclk"] ), XTRX_CLKSRC_INT);
+  }
+  if (dict.count("extclk")) {
+	xtrx_set_ref_clk(_xtrx->dev(), boost::lexical_cast< unsigned >( dict["extclk"] ), XTRX_CLKSRC_EXT);
+  }
+
+  if (dict.count("vio")) {
+	  unsigned vio = boost::lexical_cast< unsigned >( dict["vio"] );
+	  _xtrx->set_vio(vio);
+  }
+
+  if (dict.count("dac")) {
+	unsigned dac = boost::lexical_cast< unsigned >( dict["dac"] );
+	xtrx_val_set(_xtrx->dev(), XTRX_TRX, XTRX_CH_AB, XTRX_VCTCXO_DAC_VAL, dac);
+  }
+
+  if (dict.count("pmode")) {
+	  unsigned pmode = boost::lexical_cast< unsigned >( dict["pmode"] );
+	  xtrx_val_set(_xtrx->dev(), XTRX_TRX, XTRX_CH_AB, XTRX_LMS7_PWR_MODE, pmode);
   }
 
   std::cerr << "xtrx_source_c::xtrx_source_c()" << std::endl;
@@ -216,15 +255,17 @@ double xtrx_source_c::set_center_freq( double freq, size_t chan )
   _freq = freq;
   double corr_freq = (freq)*(1.0 + (_corr) * 0.000001);
 
-  std::cerr << "Set freq " << freq << std::endl;
-
   if (_tdd)
     return get_center_freq(chan);
 
-  int res = xtrx_tune(_xtrx->dev(), XTRX_TUNE_RX_FDD, corr_freq, &_freq);
+  std::cerr << "Set freq " << freq << std::endl;
+
+  int res = xtrx_tune(_xtrx->dev(), XTRX_TUNE_RX_FDD, corr_freq - _dsp, &_freq);
   if (res) {
     std::cerr << "Unable to deliver frequency " << corr_freq << std::endl;
   }
+
+  res = xtrx_tune(_xtrx->dev(), XTRX_TUNE_BB_RX, _dsp, NULL);
 
   return get_center_freq(chan);
 }
@@ -236,11 +277,37 @@ double xtrx_source_c::get_center_freq( size_t chan )
 
 double xtrx_source_c::set_freq_corr( double ppm, size_t chan )
 {
+#if 0
   _corr = ppm;
 
   set_center_freq(_freq, chan);
 
   return get_freq_corr( chan );
+#else
+	uint64_t a = ppm;
+	unsigned phase = a & 0x1ff;
+	unsigned fbphase = (a >> 9) & 0x1ff;
+
+	unsigned vlms = (a >> 18) & 7;
+	unsigned vdig = (a >> 21) & 7;
+	unsigned vaux = (a >> 24) & 7;
+	unsigned vpwr = vlms | (vaux << 8) | (vdig << 12);
+
+	if (_prev_phasefb != fbphase) {
+		xtrx_val_set(_xtrx->dev(), XTRX_TRX, XTRX_CH_AB, XTRX_LML_PHY_FBPHASE, fbphase);
+		_prev_phasefb = fbphase;
+	}
+	if (_prev_phase != phase) {
+		xtrx_val_set(_xtrx->dev(), XTRX_TRX, XTRX_CH_AB, XTRX_LML_PHY_PHASE, phase);
+		_prev_phase = phase;
+	}
+	if (_prev_pwr != vpwr) {
+		xtrx_val_set(_xtrx->dev(), XTRX_TRX, XTRX_CH_AB, XTRX_LMS7_PWR_MODE, vpwr);
+		_prev_pwr = vpwr;
+	}
+
+	return ppm;
+#endif
 }
 
 double xtrx_source_c::get_freq_corr( size_t chan )
@@ -261,14 +328,14 @@ static xtrx_gain_type_t get_gain_type(const std::string& name)
 
   it = s_lna_map.find(name);
   if (it != s_lna_map.end()) {
-    return it->second;
+	return it->second;
   }
 
   return XTRX_RX_LNA_GAIN;
 }
 
 static const std::vector<std::string> s_lna_list = boost::assign::list_of
-    ("LNA")("TIA")("PGA")("LB")
+  ("LNA")("TIA")("PGA")("LB")
     ;
 
 std::vector<std::string> xtrx_source_c::get_gain_names( size_t chan )
@@ -467,7 +534,23 @@ int xtrx_source_c::work (int noutput_items,
   if (res) {
     std::stringstream message;
     message << "xtrx_recv_sync error: " << -res;
-    throw std::runtime_error( message.str() );
+	throw std::runtime_error( message.str() );
+  }
+
+  uint64_t seconds = (ri.out_first_sample / _rate);
+  double fractional = (ri.out_first_sample - (uint64_t)(_rate * seconds)) / _rate;
+
+  //std::cerr << "Time " << seconds << ":" << fractional << std::endl;
+  const pmt::pmt_t val = pmt::make_tuple
+              (pmt::from_uint64(seconds),
+               pmt::from_double(fractional));
+  for(size_t i = 0; i < output_items.size(); i++) {
+    this->add_item_tag(i, nitems_written(0), TIME_KEY,
+                       val, _id);
+    this->add_item_tag(i, nitems_written(0), RATE_KEY,
+                       pmt::from_double(_rate), _id);
+    this->add_item_tag(i, nitems_written(0), FREQ_KEY,
+                       pmt::from_double(this->get_center_freq(i)), _id);
   }
 
   return ri.out_samples;
@@ -503,6 +586,8 @@ bool xtrx_source_c::start()
     std::cerr << "Got error: " << res << std::endl;
   }
 
+  res = xtrx_tune(_xtrx->dev(), XTRX_TUNE_BB_RX, _dsp, NULL);
+
   return res == 0;
 }
 
@@ -517,4 +602,18 @@ bool xtrx_source_c::stop()
   }
 
   return res == 0;
+}
+
+double xtrx_source_c::set_bb_gain( double gain, size_t chan)
+{
+	unsigned b = gain;
+	if (b < 1000)
+		b = 1000;
+	else if (b > 3300)
+		b = 3300;
+
+	std::cerr << "xtrx_source_c set VIO to " << b << std::endl;
+
+	xtrx_val_set(_xtrx->dev(), XTRX_TRX, XTRX_CH_AB, XTRX_LMS7_VIO, b);
+	return 0;
 }

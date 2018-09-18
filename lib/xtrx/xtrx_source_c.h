@@ -26,6 +26,10 @@
 #include "source_iface.h"
 #include "xtrx_obj.h"
 
+static const pmt::pmt_t TIME_KEY = pmt::string_to_symbol("rx_time");
+static const pmt::pmt_t RATE_KEY = pmt::string_to_symbol("rx_rate");
+static const pmt::pmt_t FREQ_KEY = pmt::string_to_symbol("rx_freq");
+
 class xtrx_source_c;
 
 typedef boost::shared_ptr< xtrx_source_c > xtrx_source_c_sptr;
@@ -87,8 +91,11 @@ public:
   bool start();
   bool stop();
 
+  double set_bb_gain( double gain, size_t chan = 0 );
+
 private:
   xtrx_obj_sptr _xtrx;
+  pmt::pmt_t _id;
 
   unsigned _sample_flags;
   double _rate;
@@ -108,10 +115,18 @@ private:
   unsigned _channels;
   xtrx_antenna_t _ant;
 
+  unsigned _prev_phase;
+  unsigned _prev_phasefb;
+  unsigned _prev_pwr;
+
   bool     _swap_ab;
   bool     _swap_iq;
   bool     _loopback;
   bool     _tdd;
+  bool     _fbctrl;
+
+  double   _dsp;
+  std::string _dev;
 };
 
 #endif // XTRX_SOURCE_C_H

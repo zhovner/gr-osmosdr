@@ -79,8 +79,11 @@ xtrx_source_c::xtrx_source_c(const std::string &args) :
   _swap_ab(false),
   _swap_iq(false),
   _loopback(false),
-  _tdd(false)
+  _tdd(false),
+  _fbctrl(false),
+  _dsp(0)
 {
+  _id = pmt::string_to_symbol(args);
 
   dict_t dict = params_to_dict(args);
 
@@ -123,6 +126,10 @@ xtrx_source_c::xtrx_source_c(const std::string &args) :
     lmsreset = boost::lexical_cast< bool >( dict["lmsreset"] );
   }
 
+  if (dict.count("fbctrl")) {
+	_fbctrl = boost::lexical_cast< bool >( dict["fbctrl"] );
+  }
+
   if (dict.count("swap_ab")) {
     _swap_ab = true;
     std::cerr << "xtrx_source_c: swap AB channels";
@@ -147,11 +154,39 @@ xtrx_source_c::xtrx_source_c(const std::string &args) :
     std::cerr << "xtrx_source_c: TDD mode";
   }
 
-  _xtrx = xtrx_obj::get("/dev/xtrx0", loglevel, lmsreset);
+  if (dict.count("dsp")) {
+      _dsp = boost::lexical_cast< double >( dict["dsp"] );
+      std::cerr << "xtrx_source_c: DSP:" << _dsp;
+  }
+
+  if (dict.count("dev")) {
+      _dev =  dict["dev"];
+      std::cerr << "xtrx_source_c: XTRX device: %s" << _dev.c_str();
+  }
+
+  _xtrx = xtrx_obj::get(_dev.c_str(), loglevel, lmsreset);
 
   if (dict.count("refclk")) {
-    xtrx_set_ref_clk(_xtrx->dev(), boost::lexical_cast< unsigned >( dict["refclk"] ), XTRX_CLKSRC_INT);
-  }
+      xtrx_set_ref_clk(_xtrx->dev(), boost::lexical_cast< unsigned >( dict["refclk"] ), XTRX_CLKSRC_INT);
+    }
+  if (dict.count("extclk")) {
+      xtrx_set_ref_clk(_xtrx->dev(), boost::lexical_cast< unsigned >( dict["extclk"] ), XTRX_CLKSRC_EXT);
+    }
+
+  if (dict.count("vio")) {
+      unsigned vio = boost::lexical_cast< unsigned >( dict["vio"] );
+      _xtrx->set_vio(vio);
+    }
+
+  if (dict.count("dac")) {
+      unsigned dac = boost::lexical_cast< unsigned >( dict["dac"] );
+      xtrx_val_set(_xtrx->dev(), XTRX_TRX, XTRX_CH_AB, XTRX_VCTCXO_DAC_VAL, dac);
+    }
+
+  if (dict.count("pmode")) {
+      unsigned pmode = boost::lexical_cast< unsigned >( dict["pmode"] );
+      xtrx_val_set(_xtrx->dev(), XTRX_TRX, XTRX_CH_AB, XTRX_LMS7_PWR_MODE, pmode);
+    }
 
   std::cerr << "xtrx_source_c::xtrx_source_c()" << std::endl;
   set_alignment(32);
@@ -216,15 +251,17 @@ double xtrx_source_c::set_center_freq( double freq, size_t chan )
   _freq = freq;
   double corr_freq = (freq)*(1.0 + (_corr) * 0.000001);
 
-  std::cerr << "Set freq " << freq << std::endl;
-
   if (_tdd)
     return get_center_freq(chan);
 
-  int res = xtrx_tune(_xtrx->dev(), XTRX_TUNE_RX_FDD, corr_freq, &_freq);
+  std::cerr << "Set freq " << freq << std::endl;
+
+  int res = xtrx_tune(_xtrx->dev(), XTRX_TUNE_RX_FDD, corr_freq - _dsp, &_freq);
   if (res) {
     std::cerr << "Unable to deliver frequency " << corr_freq << std::endl;
   }
+
+  res = xtrx_tune(_xtrx->dev(), XTRX_TUNE_BB_RX, _dsp, NULL);
 
   return get_center_freq(chan);
 }
@@ -502,6 +539,8 @@ bool xtrx_source_c::start()
   if (res) {
     std::cerr << "Got error: " << res << std::endl;
   }
+
+  res = xtrx_tune(_xtrx->dev(), XTRX_TUNE_BB_RX, _dsp, NULL);
 
   return res == 0;
 }

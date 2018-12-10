@@ -94,6 +94,7 @@ private:
   double _freq;
   double _corr;
   double _bandwidth;
+  double _dsp;
   bool _auto_gain;
 
   xtrx_wire_format_t _otw;
@@ -110,6 +111,9 @@ private:
   bool     _swap_iq;
 
   bool     _tdd;
+  bool     _allow_dis;
+
+  std::string _dev;
 };
 
 #endif // xtrx_sink_c_H

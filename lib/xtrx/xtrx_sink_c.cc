@@ -73,13 +73,16 @@ xtrx_sink_c::xtrx_sink_c(const std::string &args) :
   _freq(0),
   _corr(0),
   _bandwidth(0),
+  _dsp(0),
   _auto_gain(false),
   _otw(XTRX_WF_16),
   _mimo_mode(parse_nchan(args) > 1),
   _ts(8192),
   _swap_ab(false),
   _swap_iq(false),
-  _tdd(false)
+  _tdd(false),
+  _allow_dis(false),
+  _dev("")
 {
 
   dict_t dict = params_to_dict(args);
@@ -110,6 +113,14 @@ xtrx_sink_c::xtrx_sink_c(const std::string &args) :
     lmsreset = boost::lexical_cast< bool >( dict["lmsreset"] );
   }
 
+  if (dict.count("txdelay")) {
+	_ts += 8192 * boost::lexical_cast< int >( dict["txdelay"] );
+  }
+
+  if (dict.count("allowdis")) {
+	_allow_dis = boost::lexical_cast< bool >( dict["allowdis"] );
+  }
+
   if (dict.count("swap_ab")) {
     _swap_ab = true;
     std::cerr << "xtrx_sink_c: swap AB channels";
@@ -129,10 +140,23 @@ xtrx_sink_c::xtrx_sink_c(const std::string &args) :
     std::cerr << "xtrx_sink_c: TDD mode";
   }
 
-  _xtrx = xtrx_obj::get("/dev/xtrx0", loglevel, lmsreset);
+  if (dict.count("dsp")) {
+      _dsp = boost::lexical_cast< double >( dict["dsp"] );
+      std::cerr << "xtrx_sink_c: DSP:" << _dsp;
+  }
+
+  if (dict.count("dev")) {
+      _dev =  dict["dev"];
+      std::cerr << "xtrx_sink_c: XTRX device: %s" << _dev.c_str();
+  }
+
+  _xtrx = xtrx_obj::get(_dev.c_str(), loglevel, lmsreset);
 
   if (dict.count("refclk")) {
     xtrx_set_ref_clk(_xtrx->dev(), boost::lexical_cast< unsigned >( dict["refclk"] ), XTRX_CLKSRC_INT);
+  }
+  if (dict.count("extclk")) {
+    xtrx_set_ref_clk(_xtrx->dev(), boost::lexical_cast< unsigned >( dict["extclk"] ), XTRX_CLKSRC_EXT);
   }
 
   std::cerr << "xtrx_sink_c::xtrx_sink_c()" << std::endl;
@@ -188,19 +212,20 @@ double xtrx_sink_c::set_center_freq( double freq, size_t chan )
   _freq = freq;
   double corr_freq = (freq)*(1.0 + (_corr) * 0.000001);
 
-  std::cerr << "Set freq " << freq << std::endl;
+  std::cerr << "TX Set freq " << freq << std::endl;
 
-  int res = xtrx_tune(_xtrx->dev(), (_tdd) ? XTRX_TUNE_TX_AND_RX_TDD : XTRX_TUNE_TX_FDD, corr_freq, &_freq);
+  int res = xtrx_tune(_xtrx->dev(), (_tdd) ? XTRX_TUNE_TX_AND_RX_TDD : XTRX_TUNE_TX_FDD, corr_freq - _dsp, &_freq);
   if (res) {
     std::cerr << "Unable to deliver frequency " << corr_freq << std::endl;
   }
 
+  res = xtrx_tune(_xtrx->dev(), XTRX_TUNE_BB_TX, _dsp, NULL);
   return get_center_freq(chan);
 }
 
 double xtrx_sink_c::get_center_freq( size_t chan )
 {
-  return _freq;
+  return _freq + _dsp;
 }
 
 double xtrx_sink_c::set_freq_corr( double ppm, size_t chan )
@@ -367,7 +392,10 @@ int xtrx_sink_c::work (int noutput_items,
   nfo.buffer_count = input_items.size();
   nfo.buffers = &input_items[0];
   nfo.flags = XTRX_TX_DONT_BUFFER;
+  if (!_allow_dis)
+	nfo.flags |= XTRX_TX_NO_DISCARD;
   nfo.ts = _ts;
+  nfo.timeout = 0;
 
   int res = xtrx_send_sync_ex(_xtrx->dev(), &nfo);
   if (res) {

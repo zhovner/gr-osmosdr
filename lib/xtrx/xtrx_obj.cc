@@ -58,6 +58,7 @@ std::vector<std::string> xtrx_obj::get_devices()
 
 xtrx_obj::xtrx_obj(const std::string &path, unsigned loglevel, bool lmsreset)
   : _run(false)
+  , _vio(0)
   , _sink_rate(0)
   , _sink_master(0)
   , _source_rate(0)
@@ -67,7 +68,7 @@ xtrx_obj::xtrx_obj(const std::string &path, unsigned loglevel, bool lmsreset)
   unsigned xtrxflag = (loglevel & XTRX_O_LOGLVL_MASK) | ((lmsreset) ? XTRX_O_RESET : 0);
   std::cerr << "xtrx_obj::xtrx_obj = " << xtrxflag << std::endl;
 
-  int res = xtrx_open(path.c_str(), xtrxflag, &_obj);
+  int res = xtrx_open((path.length() == 0) ? NULL : path.c_str(), xtrxflag, &_obj);
   if (res) {
     std::stringstream message;
     message << "Couldn't open "  ": Error: " << -res;
@@ -112,6 +113,10 @@ double xtrx_obj::set_smaplerate(double rate, double master, bool sink, unsigned 
   if (sink)
     return _sink_rate;
   return _source_rate;
+  }
+
+  if (_vio) {
+    xtrx_val_set(_obj, XTRX_TRX, XTRX_CH_AB, XTRX_LMS7_VIO, _vio);
   }
 
   if (sink)

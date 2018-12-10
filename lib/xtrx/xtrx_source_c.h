@@ -89,6 +89,7 @@ public:
 
 private:
   xtrx_obj_sptr _xtrx;
+  pmt::pmt_t _id;
 
   unsigned _sample_flags;
   double _rate;
@@ -112,6 +113,10 @@ private:
   bool     _swap_iq;
   bool     _loopback;
   bool     _tdd;
+  bool     _fbctrl;
+
+  double   _dsp;
+  std::string _dev;
 };
 
 #endif // XTRX_SOURCE_C_H

@@ -46,6 +46,8 @@ include(GrVersion) #setup version info
 # Compiler specific setup
 ########################################################################
 
+set (CMAKE_CXX_STANDARD 11)
+
 IF(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
  SET(USE_SIMD "SSE2" CACHE STRING "Use SIMD instructions")
 ELSE()
